@@ -200,10 +200,13 @@ CompiledGeometryHandle RenderManager::GetCompiledGeometryHandle(StableVectorInde
 		return {};
 
 	GeometryData& geometry = geometry_list[index];
-	if (!geometry.handle && !geometry.mesh.indices.empty())
+	if (!geometry.handle && geometry.mesh)
 	{
 		RMLUI_ZoneScopedNC("CompileGeometry", 0x1E60D2);
-		geometry.handle = render_interface->CompileGeometry(geometry.mesh.vertices, geometry.mesh.indices);
+		if (geometry.mesh.data.empty())
+			geometry.handle = render_interface->CompileGeometry(geometry.mesh.vertices, geometry.mesh.indices);
+		else
+			geometry.handle = render_interface->CompileGeometryEx(geometry.mesh.vertices, geometry.mesh.indices, geometry.mesh.data);
 
 		if (!geometry.handle)
 			Log::Message(Log::LT_ERROR, "Got empty compiled geometry.");

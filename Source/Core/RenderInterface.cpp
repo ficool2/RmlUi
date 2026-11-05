@@ -17,6 +17,11 @@ RenderInterface::~RenderInterface()
 		"or nullptr dereference when releasing render resources. Ensure that the render interface is destroyed *after* the call to Rml::Shutdown.");
 }
 
+CompiledGeometryHandle RenderInterface::CompileGeometryEx(Span<const Vertex> vertices, Span<const int> indices, Span<const byte> /*data*/)
+{
+	return CompileGeometry(vertices, indices);
+}
+
 void RenderInterface::EnableClipMask(bool /*enable*/) {}
 
 void RenderInterface::RenderToClipMask(ClipMaskOperation /*operation*/, CompiledGeometryHandle /*geometry*/, Vector2f /*translation*/) {}

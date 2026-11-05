@@ -9,9 +9,13 @@ namespace Rml {
 struct RMLUICORE_API Mesh {
 	Vector<Vertex> vertices;
 	Vector<int> indices;
+	Vector<byte> data;
 
-	explicit operator bool() const { return !indices.empty(); }
-	friend bool operator==(const Mesh& lhs, const Mesh& rhs) { return lhs.vertices == rhs.vertices && lhs.indices == rhs.indices; }
+	explicit operator bool() const { return !indices.empty() || !data.empty(); }
+	friend bool operator==(const Mesh& lhs, const Mesh& rhs)
+	{
+		return lhs.vertices == rhs.vertices && lhs.indices == rhs.indices && lhs.data == rhs.data;
+	}
 	friend bool operator!=(const Mesh& lhs, const Mesh& rhs) { return !(lhs == rhs); }
 };
 
