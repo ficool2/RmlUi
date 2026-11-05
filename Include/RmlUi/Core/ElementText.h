@@ -66,6 +66,26 @@ protected:
 	void GetRML(String& content) override;
 
 private:
+	bool GenerateLineUncached(String& line, int& line_length, float& line_width, int line_begin, float maximum_line_width, float right_spacing_width,
+		bool trim_whitespace_prefix, bool decode_escape_characters, bool allow_empty);
+
+	// Results of recent GenerateLine calls.
+	struct CachedLine {
+		FontFaceHandle font_face_handle;
+		int line_begin;
+		float maximum_line_width;
+		float right_spacing_width;
+		bool trim_whitespace_prefix, decode_escape_characters, allow_empty;
+
+		String line;
+		int line_length;
+		float line_width;
+		bool reached_end;
+	};
+	static constexpr int MaxCachedLines = 8;
+	Vector<CachedLine> cached_lines;
+	int next_cached_line = 0;
+
 	// Prepares the font effects this element uses for its font.
 	bool UpdateFontEffects();
 
@@ -77,6 +97,8 @@ private:
 	String text;
 
 	LineList lines;
+	// Lines from before the last relayout.
+	LineList previous_lines;
 
 	struct TexturedGeometry {
 		Geometry geometry;
@@ -93,6 +115,7 @@ private:
 	int font_handle_version;
 
 	bool geometry_dirty : 1;
+	bool lines_relayout_pending : 1;
 
 	bool dirty_layout_on_change : 1;
 

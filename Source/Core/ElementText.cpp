@@ -100,7 +100,7 @@ void LogMissingFontFace(Element* element)
 RMLUI_RTTI_Define(ElementText)
 
 ElementText::ElementText(const String& tag) :
-	Element(tag), colour(255, 255, 255), opacity(1), font_handle_version(0), geometry_dirty(true), dirty_layout_on_change(true),
+	Element(tag), colour(255, 255, 255), opacity(1), font_handle_version(0), geometry_dirty(true), lines_relayout_pending(false), dirty_layout_on_change(true),
 	generated_decoration(Style::TextDecoration::None), decoration_property(Style::TextDecoration::None), font_effects_dirty(true),
 	font_effects_handle(0)
 {}
@@ -112,6 +112,7 @@ void ElementText::SetText(const String& _text)
 	if (text != _text)
 	{
 		text = _text;
+		cached_lines.clear();
 
 		if (dirty_layout_on_change)
 			DirtyLayout();
@@ -133,6 +134,28 @@ void ElementText::OnRender()
 
 	RenderManager& render_manager = GetContext()->GetRenderManager();
 
+	if (lines_relayout_pending)
+	{
+		lines_relayout_pending = false;
+
+		bool same = lines.size() == previous_lines.size();
+		for (size_t i = 0; same && i < lines.size(); i++)
+			same = lines[i].position == previous_lines[i].position && lines[i].text == previous_lines[i].text;
+
+		if (same)
+		{
+			// width is only filled in by GenerateGeometry
+			for (size_t i = 0; i < lines.size(); i++)
+				lines[i].width = previous_lines[i].width;
+		}
+		else
+		{
+			geometry_dirty = true;
+		}
+
+		previous_lines.clear();
+	}
+
 	// If our font effects have potentially changed, update it and force a geometry generation if necessary.
 	if (font_effects_dirty && UpdateFontEffects())
 		geometry_dirty = true;
@@ -144,6 +167,40 @@ void ElementText::OnRender()
 		font_handle_version = new_version;
 		geometry_dirty = true;
 	}
+
+	const Vector2f translation = GetAbsoluteOffset();
+
+	bool render = true;
+
+	// Do a visibility test against the scissor region to avoid unnecessary render calls. Instead of handling
+	// culling in complicated transform cases, for simplicity we always proceed to render if one is detected.
+	Rectanglei scissor_region = render_manager.GetScissorRegion();
+	if (!scissor_region.Valid())
+		scissor_region = Rectanglei::FromSize(render_manager.GetViewport());
+
+	if (!GetTransformState() || !GetTransformState()->GetTransform())
+	{
+		const FontMetrics& font_metrics = GetFontEngineInterface()->GetFontMetrics(GetFontFaceHandle());
+		const int ascent = Math::RoundUpToInteger(font_metrics.ascent);
+		const int descent = Math::RoundUpToInteger(font_metrics.descent);
+
+		render = false;
+		for (const Line& line : lines)
+		{
+			const Vector2i baseline = Vector2i(translation + line.position);
+			Rectanglei line_region = Rectanglei::FromCorners(baseline - Vector2i(0, ascent), baseline + Vector2i(geometry_dirty ? scissor_region.Right() - baseline.x : line.width, descent));
+
+			if (line_region.Valid() && scissor_region.Intersects(line_region))
+			{
+				render = true;
+				break;
+			}
+		}
+	}
+
+	// Off-screen text (e.g. a long scrolled list) doesn't need its geometry until it shows up.
+	if (!render)
+		return;
 
 	// Regenerate the geometry if the colour or font configuration has altered.
 	if (geometry_dirty)
@@ -171,36 +228,6 @@ void ElementText::OnRender()
 		generated_decoration = decoration_property;
 	}
 
-	const Vector2f translation = GetAbsoluteOffset();
-
-	bool render = true;
-
-	// Do a visibility test against the scissor region to avoid unnecessary render calls. Instead of handling
-	// culling in complicated transform cases, for simplicity we always proceed to render if one is detected.
-	Rectanglei scissor_region = render_manager.GetScissorRegion();
-	if (!scissor_region.Valid())
-		scissor_region = Rectanglei::FromSize(render_manager.GetViewport());
-
-	if (!GetTransformState() || !GetTransformState()->GetTransform())
-	{
-		const FontMetrics& font_metrics = GetFontEngineInterface()->GetFontMetrics(GetFontFaceHandle());
-		const int ascent = Math::RoundUpToInteger(font_metrics.ascent);
-		const int descent = Math::RoundUpToInteger(font_metrics.descent);
-
-		render = false;
-		for (const Line& line : lines)
-		{
-			const Vector2i baseline = Vector2i(translation + line.position);
-			const Rectanglei line_region = Rectanglei::FromCorners(baseline - Vector2i(0, ascent), baseline + Vector2i(line.width, descent));
-
-			if (line_region.Valid() && scissor_region.Intersects(line_region))
-			{
-				render = true;
-				break;
-			}
-		}
-	}
-
 	if (render)
 	{
 		for (size_t i = 0; i < geometry.size(); ++i)
@@ -215,6 +242,55 @@ bool ElementText::GenerateLine(String& line, int& line_length, float& line_width
 	bool trim_whitespace_prefix, bool decode_escape_characters, bool allow_empty)
 {
 	RMLUI_ZoneScoped;
+
+	const FontFaceHandle font_face_handle = GetFontFaceHandle();
+	if (font_face_handle != 0)
+	{
+		for (const CachedLine& cached : cached_lines)
+		{
+			if (cached.font_face_handle != font_face_handle || cached.line_begin != line_begin ||
+				cached.trim_whitespace_prefix != trim_whitespace_prefix || cached.decode_escape_characters != decode_escape_characters ||
+				cached.allow_empty != allow_empty)
+				continue;
+
+			// Same space.
+			const bool same_space = cached.maximum_line_width == maximum_line_width && cached.right_spacing_width == right_spacing_width;
+			// ... Or the rest of the text fit last time and still does.
+			const bool still_fits = cached.reached_end && cached.line_width + right_spacing_width <= maximum_line_width;
+			if (!same_space && !still_fits)
+				continue;
+
+			line = cached.line;
+			line_length = cached.line_length;
+			line_width = cached.line_width;
+			return cached.reached_end;
+		}
+	}
+
+	const bool reached_end = GenerateLineUncached(line, line_length, line_width, line_begin, maximum_line_width, right_spacing_width,
+		trim_whitespace_prefix, decode_escape_characters, allow_empty);
+
+	if (font_face_handle != 0)
+	{
+		CachedLine cached{font_face_handle, line_begin, maximum_line_width, right_spacing_width, trim_whitespace_prefix, decode_escape_characters,
+			allow_empty, line, line_length, line_width, reached_end};
+		if ((int)cached_lines.size() < MaxCachedLines)
+		{
+			cached_lines.push_back(std::move(cached));
+		}
+		else
+		{
+			cached_lines[next_cached_line] = std::move(cached);
+			next_cached_line = (next_cached_line + 1) % MaxCachedLines;
+		}
+	}
+
+	return reached_end;
+}
+
+bool ElementText::GenerateLineUncached(String& line, int& line_length, float& line_width, int line_begin, float maximum_line_width,
+	float right_spacing_width, bool trim_whitespace_prefix, bool decode_escape_characters, bool allow_empty)
+{
 	RMLUI_ASSERT(maximum_line_width >= 0.f);
 
 	FontFaceHandle font_face_handle = GetFontFaceHandle();
@@ -338,9 +414,14 @@ bool ElementText::GenerateLine(String& line, int& line_length, float& line_width
 void ElementText::ClearLines()
 {
 	RMLUI_ZoneScoped;
+	// Keep the old lines around.
+	if (!geometry_dirty && !lines_relayout_pending)
+	{
+		previous_lines = std::move(lines);
+		lines_relayout_pending = true;
+	}
 	lines.clear();
 	generated_decoration = Style::TextDecoration::None;
-	geometry_dirty = true;
 }
 
 void ElementText::AddLine(Vector2f line_position, String line)
@@ -350,7 +431,8 @@ void ElementText::AddLine(Vector2f line_position, String line)
 
 	lines.emplace_back(std::move(line), line_position);
 
-	geometry_dirty = true;
+	if (!lines_relayout_pending)
+		geometry_dirty = true;
 }
 
 void ElementText::SuppressAutoLayout()
@@ -363,6 +445,8 @@ void ElementText::OnPropertyChange(const PropertyIdSet& changed_properties)
 	RMLUI_ZoneScoped;
 
 	Element::OnPropertyChange(changed_properties);
+
+	cached_lines.clear();
 
 	bool colour_changed = false;
 	bool font_face_changed = false;
