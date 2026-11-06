@@ -145,8 +145,11 @@ void Element::Update(float dp_ratio, Vector2f vp_dimensions)
 
 	meta->effects.InstanceEffects();
 
-	for (size_t i = 0; i < children.size(); i++)
-		children[i]->Update(dp_ratio, vp_dimensions);
+	if (meta->computed_values.display() != Style::Display::None)
+	{
+		for (size_t i = 0; i < children.size(); i++)
+			children[i]->Update(dp_ratio, vp_dimensions);
+	}
 
 	if (!animations.empty() && IsVisible(true))
 	{
