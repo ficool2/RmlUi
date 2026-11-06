@@ -11,7 +11,9 @@
 #include "ElementDebugDocument.h"
 #include "ElementInfo.h"
 #include "ElementLog.h"
-#include "FontSource.h"
+#ifndef RMLUI_DEBUGGER_FONT_FILE
+	#include "FontSource.h"
+#endif
 #include "Geometry.h"
 #include "MenuSource.h"
 #include <stack>
@@ -263,9 +265,13 @@ bool DebuggerPlugin::LoadFont()
 {
 	const String font_family_name = "rmlui-debugger-font";
 
+#ifdef RMLUI_DEBUGGER_FONT_FILE
+	return LoadFontFace(RMLUI_DEBUGGER_FONT_FILE, font_family_name, Style::FontStyle::Normal, Style::FontWeight::Normal);
+#else
 	return (LoadFontFace({courier_prime_code, sizeof(courier_prime_code)}, font_family_name, Style::FontStyle::Normal, Style::FontWeight::Normal) &&
 		LoadFontFace({courier_prime_code_italic, sizeof(courier_prime_code_italic)}, font_family_name, Style::FontStyle::Italic,
 			Style::FontWeight::Normal));
+#endif
 }
 
 bool DebuggerPlugin::LoadMenuElement()
