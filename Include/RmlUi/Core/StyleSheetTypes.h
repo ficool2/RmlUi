@@ -78,6 +78,9 @@ struct StyleSheetIndex {
 	// The following objects are given in prioritized order. Any nodes in the first object will not be contained in the next one and so on.
 	NodeIndex ids, classes, tags;
 	NodeList other;
+
+	// True if any selector uses a sibling combinator ('+' or '~').
+	bool has_sibling_combinators = false;
 };
 } // namespace Rml
 

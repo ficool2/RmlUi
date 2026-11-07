@@ -130,6 +130,9 @@ void StyleSheetNode::BuildIndex(StyleSheetIndex& styled_node_index) const
 		}
 	}
 
+	if (selector.combinator == SelectorCombinator::NextSibling || selector.combinator == SelectorCombinator::SubsequentSibling)
+		styled_node_index.has_sibling_combinators = true;
+
 	for (auto& child : children)
 		child->BuildIndex(styled_node_index);
 }

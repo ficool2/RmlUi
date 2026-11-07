@@ -2517,7 +2517,12 @@ void Element::DirtyDefinition(DirtyNodes dirty_nodes)
 	case DirtyNodes::SelfAndSiblings:
 		dirty_definition = true;
 		if (parent)
-			parent->dirty_child_definitions = true;
+		{
+			// Siblings only need restyling when the style sheet has sibling combinators.
+			const StyleSheet* style_sheet = GetStyleSheet();
+			if (!style_sheet || style_sheet->HasSiblingCombinators())
+				parent->dirty_child_definitions = true;
+		}
 		break;
 	}
 }

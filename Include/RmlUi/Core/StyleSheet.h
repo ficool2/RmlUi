@@ -37,6 +37,9 @@ public:
 	/// Builds the node index for a combined style sheet.
 	void BuildNodeIndex();
 
+	/// Returns true if any selector in this style sheet uses a sibling combinator, i.e. if an element's state can affect its siblings' styles.
+	bool HasSiblingCombinators() const { return styled_node_index.has_sibling_combinators; }
+
 	/// Returns the named @decorator, or null if it does not exist.
 	const NamedDecorator* GetNamedDecorator(const String& name) const;
 
