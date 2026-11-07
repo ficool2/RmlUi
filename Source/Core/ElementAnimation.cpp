@@ -530,7 +530,9 @@ static bool PrepareTransforms(Vector<AnimationKey>& keys, Element& element, int 
 		Property& property = keys[i].property;
 		RMLUI_ASSERT(property.value.GetType() == Variant::TRANSFORMPTR);
 
-		if (!property.value.GetReference<TransformPtr>())
+		if (const TransformPtr& source = property.value.GetReference<TransformPtr>())
+			property.value = MakeShared<Transform>(*source);
+		else
 			property.value = MakeShared<Transform>();
 
 		bool must_decompose = false;
