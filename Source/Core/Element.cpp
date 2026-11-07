@@ -3074,6 +3074,9 @@ void Element::OnDpRatioChangeRecursive()
 	meta->effects.DirtyEffects();
 	GetStyle()->DirtyPropertiesWithUnits(Unit::DP_SCALABLE_LENGTH);
 
+	if (transform_state || meta->computed_values.has_local_transform() || meta->computed_values.has_local_perspective())
+		DirtyTransformState(true, true);
+
 	OnDpRatioChange();
 
 	// Now dirty all of our descendants.
