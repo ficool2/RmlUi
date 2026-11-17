@@ -211,37 +211,34 @@ void ElementEffects::RenderEffects(RenderStage render_stage)
 
 	Rectanglei initial_scissor_region = render_manager->GetScissorRegion();
 
-	auto ApplyClippingRegion = [this, &render_manager](PropertyId filter_id) {
+	// Find the region affected by a filter lis
+	auto GetFilterRegion = [this](BoxArea box_area, const auto& filter_list) {
+		Rectanglef filter_region = Rectanglef::MakeInvalid();
+		ElementUtilities::GetBoundingBox(filter_region, element, box_area);
+		for (const auto& filter : filter_list)
+			filter.filter->ExtendInkOverflow(element, filter_region);
+		Math::ExpandToPixelGrid(filter_region);
+		return Rectanglei(filter_region);
+	};
+
+	auto ApplyClippingRegion = [this, &render_manager, &GetFilterRegion](PropertyId filter_id) {
 		RMLUI_ASSERT(filter_id == PropertyId::Filter || filter_id == PropertyId::BackdropFilter);
 
 		const bool force_clip_to_self_border_box = (filter_id == PropertyId::BackdropFilter);
 		ElementUtilities::SetClippingRegion(element, force_clip_to_self_border_box);
 
 		// Find the region being affected by the active filters and apply it as a scissor.
-		Rectanglef filter_region = Rectanglef::MakeInvalid();
-		ElementUtilities::GetBoundingBox(filter_region, element, force_clip_to_self_border_box ? BoxArea::Border : BoxArea::Auto);
-
 		// The filter property may draw outside our normal clipping region due to ink overflow.
-		if (filter_id == PropertyId::Filter)
-		{
-			for (const auto& filter : filters)
-				filter.filter->ExtendInkOverflow(element, filter_region);
-		}
+		const Rectanglei filter_region = (filter_id == PropertyId::Filter) ? GetFilterRegion(BoxArea::Auto, filters)
+																		   : GetFilterRegion(BoxArea::Border, FilterEntryList{});
 
-		Math::ExpandToPixelGrid(filter_region);
-
-		Rectanglei scissor_region = Rectanglei(filter_region).IntersectIfValid(render_manager->GetScissorRegion());
+		Rectanglei scissor_region = filter_region.IntersectIfValid(render_manager->GetScissorRegion());
 		render_manager->SetScissorRegion(scissor_region);
 	};
-	auto ApplyScissorRegionForBackdrop = [this, &render_manager]() {
+	auto ApplyScissorRegionForBackdrop = [this, &render_manager, &GetFilterRegion]() {
 		// Set the scissor region for backdrop drawing, which covers the element's border box plus any area we may need
 		// to read from, such as any blur radius.
-		Rectanglef filter_region = Rectanglef::MakeInvalid();
-		ElementUtilities::GetBoundingBox(filter_region, element, BoxArea::Border);
-		for (const auto& filter : backdrop_filters)
-			filter.filter->ExtendInkOverflow(element, filter_region);
-		Math::ExpandToPixelGrid(filter_region);
-		render_manager->SetScissorRegion(Rectanglei(filter_region));
+		render_manager->SetScissorRegion(GetFilterRegion(BoxArea::Border, backdrop_filters));
 	};
 
 	if (render_stage == RenderStage::Enter)
@@ -250,7 +247,10 @@ void ElementEffects::RenderEffects(RenderStage render_stage)
 
 		if (!filters.empty() || !mask_images.empty())
 		{
+			// Scissor this push too so we only clear the necessary region.
+			render_manager->SetScissorRegion(GetFilterRegion(BoxArea::Auto, filters));
 			render_manager->PushLayer();
+			render_manager->SetScissorRegion(initial_scissor_region);
 		}
 
 		if (!backdrop_filters.empty())
